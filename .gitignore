@@ -1,1 +1,5 @@
 /.env
+/run_main.py
+/run_main.spec
+/dist/
+/build/
