@@ -26,6 +26,24 @@ PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/workflows/{flow
 # "someType": {"label": "someType", "unit": "..."}
 SPECIAL_DEP_VALUE_TYPES = {
     "lastRunTime": {"label": "lastRunTime", "unit": "мин"},
+    "amountOfSuccessExecution": {"label": "amountOfSuccessExecution"},
+    "dailyExecutionLimit": {"label": "dailyExecutionLimit"},
+    "dayOfMonth": {"label": "dayOfMonth"},
+    "dayOfWeek": {"label": "dayOfWeek"},
+    "delayedStart": {"label": "delayedStart"},
+    "execTimePeriod": {"label": "execTimePeriod"},
+    "executionParameter": {"label": "executionParameter"},
+}
+
+SCHEDULE_DEP_TYPES = {
+    "amountOfSuccessExecution",
+    "dailyExecutionLimit",
+    "dayOfMonth",
+    "dayOfWeek",
+    "delayedStart",
+    "execTimePeriod",
+    "lastRunTime",
+    "executionParameter",
 }
 
 # Типы зависимостей, у которых нет родительского workflow/task,
@@ -1272,9 +1290,26 @@ if not all_types:
     st.warning("Для выбранной пары потоков не найдено rcTypUnq.")
     st.stop()
 
+filter_option = st.radio(
+    "Показывать типы:",
+    ["Все", "Расписание", "Зависимости от потоков"],
+    horizontal=True,
+)
+
+if filter_option == "Расписание":
+    display_types = [t for t in all_types if t in SCHEDULE_DEP_TYPES]
+elif filter_option == "Зависимости от потоков":
+    display_types = [t for t in all_types if t not in SCHEDULE_DEP_TYPES]
+else:
+    display_types = all_types
+
+if not display_types:
+    st.warning(f"Нет типов для категории '{filter_option}'.")
+    st.stop()
+
 selected_type = st.selectbox(
     "Тип зависимости rcTypUnq",
-    all_types,
+    display_types,
 )
 
 left_df = adh1[adh1["rcTypUnq"].astype(str) == selected_type].copy()
