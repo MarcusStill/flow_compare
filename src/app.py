@@ -26,12 +26,6 @@ PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/workflows/{flow
 # "someType": {"label": "someType", "unit": "..."}
 SPECIAL_DEP_VALUE_TYPES = {
     "lastRunTime": {"label": "lastRunTime", "unit": "мин"},
-    "amountOfSuccessExecution": {"label": "amountOfSuccessExecution"},
-    "dailyExecutionLimit": {"label": "dailyExecutionLimit"},
-    "dayOfMonth": {"label": "dayOfMonth"},
-    "dayOfWeek": {"label": "dayOfWeek"},
-    "delayedStart": {"label": "delayedStart"},
-    "execTimePeriod": {"label": "execTimePeriod"},
 }
 
 # Типы зависимостей, у которых нет родительского workflow/task,
@@ -210,13 +204,6 @@ def extract_special_dependency_name(
 
     if dep_type in SPECIAL_DEP_VALUE_TYPES:
         dep_value = item.get("depValue")
-
-        if dep_value is None and item.get("depListValue"):
-            dep_list = item.get("depListValue")
-            if isinstance(dep_list, list):
-                dep_value = ", ".join(str(v) for v in dep_list)
-            else:
-                dep_value = str(dep_list)
 
         if dep_value is not None:
             meta = SPECIAL_DEP_VALUE_TYPES[dep_type]
