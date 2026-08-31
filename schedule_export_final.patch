@@ -1,0 +1,107 @@
+diff --git a/src/app.py b/src/app.py
+index 38681ee..9e237d7 100644
+--- a/src/app.py
++++ b/src/app.py
+@@ -26,6 +26,24 @@ PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/workflows/{flow
+ # "someType": {"label": "someType", "unit": "..."}
+ SPECIAL_DEP_VALUE_TYPES = {
+     "lastRunTime": {"label": "lastRunTime", "unit": "мин"},
++    "amountOfSuccessExecution": {"label": "amountOfSuccessExecution"},
++    "dailyExecutionLimit": {"label": "dailyExecutionLimit"},
++    "dayOfMonth": {"label": "dayOfMonth"},
++    "dayOfWeek": {"label": "dayOfWeek"},
++    "delayedStart": {"label": "delayedStart"},
++    "execTimePeriod": {"label": "execTimePeriod"},
++    "executionParameter": {"label": "executionParameter"},
++}
++
++SCHEDULE_DEP_TYPES = {
++    "amountOfSuccessExecution",
++    "dailyExecutionLimit",
++    "dayOfMonth",
++    "dayOfWeek",
++    "delayedStart",
++    "execTimePeriod",
++    "lastRunTime",
++    "executionParameter",
+ }
+
+ # Типы зависимостей, у которых нет родительского workflow/task,
+@@ -1216,6 +1234,40 @@ if adh1_all.empty and adh3_all.empty:
+     st.error("В обоих JSON не найдено conditions.")
+     st.stop()
+
++st.sidebar.subheader("Экспорт расписаний потоков")
++schedule_df = pd.concat([
++    adh1_all[adh1_all["rcTypUnq"].isin(SCHEDULE_DEP_TYPES)],
++    adh3_all[adh3_all["rcTypUnq"].isin(SCHEDULE_DEP_TYPES)]
++])
++
++if not schedule_df.empty:
++    # Заполняем Значение либо из depValue, либо из depListValue, либо из rcDesc/rcBody
++    def extract_val(row):
++        dep_val = row.get("depValue")
++        if pd.notna(dep_val) and dep_val != "":
++            return dep_val
++        dep_list = row.get("depListValue")
++        if isinstance(dep_list, list):
++            return ", ".join(str(v) for v in dep_list)
++        return row.get("rcDesc") or row.get("rcBody")
++
++    schedule_df["Значение"] = schedule_df.apply(extract_val, axis=1)
++
++    schedule_export = schedule_df[["cluster", "flow_name", "rcTypUnq", "Значение"]].copy()
++    schedule_export.rename(columns={
++        "cluster": "Кластер",
++        "flow_name": "Поток",
++        "rcTypUnq": "Параметр расписания",
++    }, inplace=True)
++
++    st.sidebar.download_button(
++        "Скачать параметры расписания (CSV)",
++        data=schedule_export.to_csv(index=False).encode("utf-8-sig"),
++        file_name="flow_schedules.csv",
++        mime="text/csv",
++    )
++
++
+ reviews = load_reviews()
+ review_map = get_review_map(reviews)
+
+@@ -1272,9 +1324,26 @@ if not all_types:
+     st.warning("Для выбранной пары потоков не найдено rcTypUnq.")
+     st.stop()
+
++filter_option = st.radio(
++    "Показывать типы:",
++    ["Все", "Расписание", "Зависимости от потоков"],
++    horizontal=True,
++)
++
++if filter_option == "Расписание":
++    display_types = [t for t in all_types if t in SCHEDULE_DEP_TYPES]
++elif filter_option == "Зависимости от потоков":
++    display_types = [t for t in all_types if t not in SCHEDULE_DEP_TYPES]
++else:
++    display_types = all_types
++
++if not display_types:
++    st.warning(f"Нет типов для категории '{filter_option}'.")
++    st.stop()
++
+ selected_type = st.selectbox(
+     "Тип зависимости rcTypUnq",
+-    all_types,
++    display_types,
+ )
+
+ left_df = adh1[adh1["rcTypUnq"].astype(str) == selected_type].copy()
+@@ -1558,7 +1627,7 @@ else:
+
+     st.download_button(
+         "Скачать короткий CSV",
+-        data=visible_reviews.to_csv(index=False).encode("windows-1251"),
++        data=visible_reviews.to_csv(index=False).encode("utf-8-sig"),
+         file_name="manual_dependency_review_new_json_short.csv",
+         mime="text/csv",
+     )
