@@ -1234,6 +1234,29 @@ if adh1_all.empty and adh3_all.empty:
     st.error("В обоих JSON не найдено conditions.")
     st.stop()
 
+st.sidebar.subheader("Экспорт расписаний потоков")
+schedule_df = pd.concat([
+    adh1_all[adh1_all["rcTypUnq"].isin(SCHEDULE_DEP_TYPES)],
+    adh3_all[adh3_all["rcTypUnq"].isin(SCHEDULE_DEP_TYPES)]
+])
+
+if not schedule_df.empty:
+    schedule_export = schedule_df[["cluster", "flow_name", "rcTypUnq", "depValue"]].copy()
+    schedule_export.rename(columns={
+        "cluster": "Кластер",
+        "flow_name": "Поток",
+        "rcTypUnq": "Параметр расписания",
+        "depValue": "Значение"
+    }, inplace=True)
+
+    st.sidebar.download_button(
+        "Скачать параметры расписания (CSV)",
+        data=schedule_export.to_csv(index=False).encode("utf-8-sig"),
+        file_name="flow_schedules.csv",
+        mime="text/csv",
+    )
+
+
 reviews = load_reviews()
 review_map = get_review_map(reviews)
 
@@ -1593,7 +1616,7 @@ else:
 
     st.download_button(
         "Скачать короткий CSV",
-        data=visible_reviews.to_csv(index=False).encode("windows-1251"),
+        data=visible_reviews.to_csv(index=False).encode("utf-8-sig"),
         file_name="manual_dependency_review_new_json_short.csv",
         mime="text/csv",
     )
