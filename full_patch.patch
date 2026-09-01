@@ -1,5 +1,5 @@
 diff --git a/src/app.py b/src/app.py
-index 38681ee..e0b82f0 100644
+index 38681ee..fe05e2c 100644
 --- a/src/app.py
 +++ b/src/app.py
 @@ -10,14 +10,24 @@ from dotenv import load_dotenv
@@ -30,7 +30,7 @@ index 38681ee..e0b82f0 100644
 
 
  # Типы зависимостей, у которых нет parentName/parentTsk,
-@@ -26,6 +36,24 @@ PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/wo
+@@ -26,6 +36,24 @@ PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/workflows/{flow
  # "someType": {"label": "someType", "unit": "..."}
  SPECIAL_DEP_VALUE_TYPES = {
      "lastRunTime": {"label": "lastRunTime", "unit": "мин"},
@@ -55,7 +55,7 @@ index 38681ee..e0b82f0 100644
  }
 
  # Типы зависимостей, у которых нет родительского workflow/task,
-@@ -204,6 +232,12 @@ def extract_special_dependency_name(
+@@ -204,6 +232,11 @@ def extract_special_dependency_name(
 
      if dep_type in SPECIAL_DEP_VALUE_TYPES:
          dep_value = item.get("depValue")
@@ -67,7 +67,7 @@ index 38681ee..e0b82f0 100644
 
          if dep_value is not None:
              meta = SPECIAL_DEP_VALUE_TYPES[dep_type]
-@@ -933,7 +967,7 @@ def build_parent_workflow_url(parent_name: str) -> str:
+@@ -933,7 +966,7 @@ def build_parent_workflow_url(parent_name: str) -> str:
 
 
  def build_parent_task_url(task_name: str) -> str:
@@ -76,10 +76,13 @@ index 38681ee..e0b82f0 100644
 
 
  @st.cache_resource
-@@ -1216,6 +1250,46 @@ if adh1_all.empty and adh3_all.empty:
-     st.error("В обоих JSON не найдено conditions.")
-     st.stop()
+@@ -1197,12 +1230,30 @@ st.set_page_config(
 
+ st.title("Dependency Review: ADH1 vs ADH3, new JSON format")
+
++# ------------------------------------------------------------
++# Sidebar functionality
++# ------------------------------------------------------------
 +if st.sidebar.button("Обновить данные (get_json.py)"):
 +    with st.spinner("Загрузка данных с сервера... Это может занять некоторое время."):
 +        run_get_json()
@@ -88,6 +91,30 @@ index 38681ee..e0b82f0 100644
 +
 +st.sidebar.subheader("Экспорт расписаний потоков")
 +
++# We will populate the export data below if we have valid dataframes
++
++# ------------------------------------------------------------
++# Data loading
++# ------------------------------------------------------------
+ if not Path(ADH1_PATH).exists():
+     st.error(f"Не найден файл {ADH1_PATH}")
++    st.info("Пожалуйста, нажмите кнопку 'Обновить данные' в боковом меню слева, чтобы сформировать JSON файлы.")
+     st.stop()
+
+ if not Path(ADH3_PATH).exists():
+     st.error(f"Не найден файл {ADH3_PATH}")
++    st.info("Пожалуйста, нажмите кнопку 'Обновить данные' в боковом меню слева, чтобы сформировать JSON файлы.")
+     st.stop()
+
+ try:
+@@ -1214,8 +1265,48 @@ except Exception as exc:
+
+ if adh1_all.empty and adh3_all.empty:
+     st.error("В обоих JSON не найдено conditions.")
++    st.info("Файлы существуют, но пусты. Попробуйте нажать 'Обновить данные' в боковом меню.")
+     st.stop()
+
++# Build schedule export payload
 +dfs_to_concat = []
 +if not adh1_all.empty and "rcTypUnq" in adh1_all.columns:
 +    dfs_to_concat.append(adh1_all[adh1_all["rcTypUnq"].isin(SCHEDULE_DEP_TYPES)])
@@ -129,7 +156,7 @@ index 38681ee..e0b82f0 100644
  reviews = load_reviews()
  review_map = get_review_map(reviews)
 
-@@ -1240,7 +1314,7 @@ with flow_col1:
+@@ -1240,7 +1331,7 @@ with flow_col1:
 
      st.link_button(
          "Открыть поток ADH1",
@@ -138,7 +165,7 @@ index 38681ee..e0b82f0 100644
          use_container_width=True,
      )
 
-@@ -1256,7 +1330,7 @@ with flow_col2:
+@@ -1256,7 +1347,7 @@ with flow_col2:
 
      st.link_button(
          "Открыть поток ADH3",
@@ -147,7 +174,7 @@ index 38681ee..e0b82f0 100644
          use_container_width=True,
      )
 
-@@ -1272,9 +1346,26 @@ if not all_types:
+@@ -1272,9 +1363,26 @@ if not all_types:
      st.warning("Для выбранной пары потоков не найдено rcTypUnq.")
      st.stop()
 
@@ -175,7 +202,7 @@ index 38681ee..e0b82f0 100644
  )
 
  left_df = adh1[adh1["rcTypUnq"].astype(str) == selected_type].copy()
-@@ -1558,7 +1649,7 @@ else:
+@@ -1558,7 +1666,7 @@ else:
 
      st.download_button(
          "Скачать короткий CSV",
