@@ -1,0 +1,50 @@
+diff --git a/src/app.py b/src/app.py
+index 38681ee..7c65cb1 100644
+--- a/src/app.py
++++ b/src/app.py
+@@ -10,6 +10,8 @@ from dotenv import load_dotenv
+ import pandas as pd
+ import streamlit as st
+
++from src.get_json import run_get_json
++
+ load_dotenv()
+ root_dir = Path(__file__).resolve().parent.parent
+ DATA_DIR = root_dir / "data"
+@@ -1216,6 +1218,12 @@ if adh1_all.empty and adh3_all.empty:
+     st.error("В обоих JSON не найдено conditions.")
+     st.stop()
+
++if st.sidebar.button("Обновить данные (get_json.py)"):
++    with st.spinner("Загрузка данных с сервера... Это может занять некоторое время."):
++        run_get_json()
++    st.sidebar.success("Данные успешно обновлены!")
++    st.rerun()
++
+ reviews = load_reviews()
+ review_map = get_review_map(reviews)
+
+diff --git a/src/get_json.py b/src/get_json.py
+index 2525951..4c527bd 100644
+--- a/src/get_json.py
++++ b/src/get_json.py
+@@ -55,7 +55,7 @@ def remove_tasks_block(yaml_text: str) -> str:
+     return yaml_text[:match.start()].rstrip() + "\n"
+
+
+-if __name__ == "__main__":
++def run_get_json():
+     load_dotenv()
+
+     DATA_DIR.mkdir(exist_ok=True)
+@@ -84,4 +84,7 @@ if __name__ == "__main__":
+     export_cluster_dependencies(
+         flow_names=list_wf_adh3,
+         output_path=DATA_DIR / "adh3_new.json",
+-    )
+\ No newline at end of file
++    )
++
++if __name__ == "__main__":
++    run_get_json()
+\ No newline at end of file
