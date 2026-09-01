@@ -1,0 +1,111 @@
+diff --git a/src/app.py b/src/app.py
+index 38681ee..f856cf2 100644
+--- a/src/app.py
++++ b/src/app.py
+@@ -10,6 +10,8 @@ from dotenv import load_dotenv
+ import pandas as pd
+ import streamlit as st
+
++from src.get_json import run_get_json
++
+ load_dotenv()
+ root_dir = Path(__file__).resolve().parent.parent
+ DATA_DIR = root_dir / "data"
+@@ -17,7 +19,8 @@ DATA_DIR = root_dir / "data"
+ ADH1_PATH = DATA_DIR / "adh1_new.json"
+ ADH3_PATH = DATA_DIR / "adh3_new.json"
+ RESULT_PATH = DATA_DIR / "manual_dependency_review_new_json.csv"
+-PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/workflows/{flow_name}/tasks"
++EIAP_URL = os.getenv("EIAP_URL", "http://adp-eiap-app1.adp.local")
++PARENT_WORKFLOW_URL_TEMPLATE = f"{EIAP_URL}/#/workflows/{{flow_name}}/tasks"
+
+
+ # Типы зависимостей, у которых нет parentName/parentTsk,
+@@ -933,7 +936,7 @@ def build_parent_workflow_url(parent_name: str) -> str:
+
+
+ def build_parent_task_url(task_name: str) -> str:
+-    return f"http://adp-eiap-app1.adp.local/#/tasks/{task_name}/info/"
++    return f"{EIAP_URL}/#/tasks/{task_name}/info/"
+
+
+ @st.cache_resource
+@@ -1216,6 +1219,12 @@ if adh1_all.empty and adh3_all.empty:
+     st.error("В обоих JSON не найдено conditions.")
+     st.stop()
+
++if st.sidebar.button("Обновить данные (get_json.py)"):
++    with st.spinner("Загрузка данных с сервера... Это может занять некоторое время."):
++        run_get_json()
++    st.sidebar.success("Данные успешно обновлены!")
++    st.rerun()
++
+ reviews = load_reviews()
+ review_map = get_review_map(reviews)
+
+@@ -1240,7 +1249,7 @@ with flow_col1:
+
+     st.link_button(
+         "Открыть поток ADH1",
+-        f"http://adp-eiap-app1.adp.local/#/workflows/{selected_adh1_flow}/tasks",
++        f"{EIAP_URL}/#/workflows/{selected_adh1_flow}/tasks",
+         use_container_width=True,
+     )
+
+@@ -1256,7 +1265,7 @@ with flow_col2:
+
+     st.link_button(
+         "Открыть поток ADH3",
+-        f"http://adp-eiap-app1.adp.local/#/workflows/{selected_adh3_flow}/tasks",
++        f"{EIAP_URL}/#/workflows/{selected_adh3_flow}/tasks",
+         use_container_width=True,
+     )
+
+diff --git a/src/get_json.py b/src/get_json.py
+index 2525951..4c527bd 100644
+--- a/src/get_json.py
++++ b/src/get_json.py
+@@ -55,7 +55,7 @@ def remove_tasks_block(yaml_text: str) -> str:
+     return yaml_text[:match.start()].rstrip() + "\n"
+
+
+-if __name__ == "__main__":
++def run_get_json():
+     load_dotenv()
+
+     DATA_DIR.mkdir(exist_ok=True)
+@@ -84,4 +84,7 @@ if __name__ == "__main__":
+     export_cluster_dependencies(
+         flow_names=list_wf_adh3,
+         output_path=DATA_DIR / "adh3_new.json",
+-    )
+\ No newline at end of file
++    )
++
++if __name__ == "__main__":
++    run_get_json()
+\ No newline at end of file
+diff --git a/utils/wfInfo.py b/utils/wfInfo.py
+index 7e54490..f6af78f 100644
+--- a/utils/wfInfo.py
++++ b/utils/wfInfo.py
+@@ -4,7 +4,8 @@ import os
+ import requests
+
+ def getWfDependencies(wf_name):
+-    url = f"http://adp-eiap-app1.adp.local:8191/svc/mdc/dependency/2/{wf_name}"
++    eiap_url = os.getenv("EIAP_URL", "http://adp-eiap-app1.adp.local")
++    url = f"{eiap_url}:8191/svc/mdc/dependency/2/{wf_name}"
+
+     payload = {}
+     headers = {
+@@ -17,7 +18,8 @@ def getWfDependencies(wf_name):
+     return response.text
+
+ def getWfUpdYaml(wf_name):
+-    url = "http://adp-eiap-app1.adp.local:8191/svc/mdc/export"
++    eiap_url = os.getenv("EIAP_URL", "http://adp-eiap-app1.adp.local")
++    url = f"{eiap_url}:8191/svc/mdc/export"
+
+     payload = json.dumps({
+         "operation": "update",
