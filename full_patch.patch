@@ -1,0 +1,251 @@
+diff --git a/src/app.py b/src/app.py
+index 38681ee..e0b82f0 100644
+--- a/src/app.py
++++ b/src/app.py
+@@ -10,14 +10,24 @@ from dotenv import load_dotenv
+ import pandas as pd
+ import streamlit as st
+
++import sys
++from src.get_json import run_get_json
++
+ load_dotenv()
+-root_dir = Path(__file__).resolve().parent.parent
+-DATA_DIR = root_dir / "data"
++
++def get_data_dir() -> Path:
++    if getattr(sys, 'frozen', False):
++        return Path(sys.executable).parent / "data"
++    return Path(__file__).resolve().parent.parent / "data"
++
++DATA_DIR = get_data_dir()
+
+ ADH1_PATH = DATA_DIR / "adh1_new.json"
+ ADH3_PATH = DATA_DIR / "adh3_new.json"
+ RESULT_PATH = DATA_DIR / "manual_dependency_review_new_json.csv"
+-PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/workflows/{flow_name}/tasks"
++
++EIAP_URL = os.getenv("EIAP_URL", "http://adp-eiap-app1.adp.local")
++PARENT_WORKFLOW_URL_TEMPLATE = f"{EIAP_URL}/#/workflows/{{flow_name}}/tasks"
+
+
+ # Типы зависимостей, у которых нет parentName/parentTsk,
+@@ -26,6 +36,24 @@ PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/wo
+ # "someType": {"label": "someType", "unit": "..."}
+ SPECIAL_DEP_VALUE_TYPES = {
+     "lastRunTime": {"label": "lastRunTime", "unit": "мин"},
++    "amountOfSuccessExecution": {"label": "amountOfSuccessExecution"},
++    "dailyExecutionLimit": {"label": "dailyExecutionLimit"},
++    "dayOfMonth": {"label": "dayOfMonth"},
++    "dayOfWeek": {"label": "dayOfWeek"},
++    "delayedStart": {"label": "delayedStart"},
++    "execTimePeriod": {"label": "execTimePeriod"},
++    "executionParameter": {"label": "executionParameter"},
++}
++
++SCHEDULE_DEP_TYPES = {
++    "amountOfSuccessExecution",
++    "dailyExecutionLimit",
++    "dayOfMonth",
++    "dayOfWeek",
++    "delayedStart",
++    "execTimePeriod",
++    "lastRunTime",
++    "executionParameter",
+ }
+
+ # Типы зависимостей, у которых нет родительского workflow/task,
+@@ -204,6 +232,12 @@ def extract_special_dependency_name(
+
+     if dep_type in SPECIAL_DEP_VALUE_TYPES:
+         dep_value = item.get("depValue")
++
++        if dep_value is None and item.get("depListValue"):
++            dep_list = item.get("depListValue")
++            if isinstance(dep_list, list):
++                dep_value = ", ".join(str(v) for v in dep_list)
+
+         if dep_value is not None:
+             meta = SPECIAL_DEP_VALUE_TYPES[dep_type]
+@@ -933,7 +967,7 @@ def build_parent_workflow_url(parent_name: str) -> str:
+
+
+ def build_parent_task_url(task_name: str) -> str:
+-    return f"http://adp-eiap-app1.adp.local/#/tasks/{task_name}/info/"
++    return f"{EIAP_URL}/#/tasks/{task_name}/info/"
+
+
+ @st.cache_resource
+@@ -1216,6 +1250,46 @@ if adh1_all.empty and adh3_all.empty:
+     st.error("В обоих JSON не найдено conditions.")
+     st.stop()
+
++if st.sidebar.button("Обновить данные (get_json.py)"):
++    with st.spinner("Загрузка данных с сервера... Это может занять некоторое время."):
++        run_get_json()
++    st.sidebar.success("Данные успешно обновлены!")
++    st.rerun()
++
++st.sidebar.subheader("Экспорт расписаний потоков")
++
++dfs_to_concat = []
++if not adh1_all.empty and "rcTypUnq" in adh1_all.columns:
++    dfs_to_concat.append(adh1_all[adh1_all["rcTypUnq"].isin(SCHEDULE_DEP_TYPES)])
++if not adh3_all.empty and "rcTypUnq" in adh3_all.columns:
++    dfs_to_concat.append(adh3_all[adh3_all["rcTypUnq"].isin(SCHEDULE_DEP_TYPES)])
++
++if dfs_to_concat:
++    schedule_df = pd.concat(dfs_to_concat)
++else:
++    schedule_df = pd.DataFrame()
++
++if not schedule_df.empty:
++    # Заполняем Значение либо из depValue, либо из depListValue, либо из rcDesc/rcBody
++    def extract_val(row):
++        dep_val = row.get("depValue")
++        if pd.notna(dep_val) and dep_val != "":
++            return dep_val
++        dep_list = row.get("depListValue")
++        if isinstance(dep_list, list):
++            return ", ".join(str(v) for v in dep_list)
++        return row.get("rcDesc") or row.get("rcBody")
++
++    schedule_df["Значение"] = schedule_df.apply(extract_val, axis=1)
++
++    schedule_export = schedule_df[["cluster", "flow_name", "rcTypUnq", "Значение"]].copy()
++    schedule_export.rename(columns={
++        "cluster": "Кластер",
++        "flow_name": "Поток",
++        "rcTypUnq": "Параметр расписания",
++    }, inplace=True)
++
++    st.sidebar.download_button(
++        "Скачать параметры расписания (CSV)",
++        data=schedule_export.to_csv(index=False).encode("utf-8-sig"),
++        file_name="flow_schedules.csv",
++        mime="text/csv",
++    )
++
+ reviews = load_reviews()
+ review_map = get_review_map(reviews)
+
+@@ -1240,7 +1314,7 @@ with flow_col1:
+
+     st.link_button(
+         "Открыть поток ADH1",
+-        f"http://adp-eiap-app1.adp.local/#/workflows/{selected_adh1_flow}/tasks",
++        f"{EIAP_URL}/#/workflows/{selected_adh1_flow}/tasks",
+         use_container_width=True,
+     )
+
+@@ -1256,7 +1330,7 @@ with flow_col2:
+
+     st.link_button(
+         "Открыть поток ADH3",
+-        f"http://adp-eiap-app1.adp.local/#/workflows/{selected_adh3_flow}/tasks",
++        f"{EIAP_URL}/#/workflows/{selected_adh3_flow}/tasks",
+         use_container_width=True,
+     )
+
+@@ -1272,9 +1346,26 @@ if not all_types:
+     st.warning("Для выбранной пары потоков не найдено rcTypUnq.")
+     st.stop()
+
++filter_option = st.radio(
++    "Показывать типы:",
++    ["Все", "Расписание", "Зависимости от потоков"],
++    horizontal=True,
++)
++
++if filter_option == "Расписание":
++    display_types = [t for t in all_types if t in SCHEDULE_DEP_TYPES]
++elif filter_option == "Зависимости от потоков":
++    display_types = [t for t in all_types if t not in SCHEDULE_DEP_TYPES]
++else:
++    display_types = all_types
++
++if not display_types:
++    st.warning(f"Нет типов для категории '{filter_option}'.")
++    st.stop()
++
+ selected_type = st.selectbox(
+     "Тип зависимости rcTypUnq",
+-    all_types,
++    display_types,
+ )
+
+ left_df = adh1[adh1["rcTypUnq"].astype(str) == selected_type].copy()
+@@ -1558,7 +1649,7 @@ else:
+
+     st.download_button(
+         "Скачать короткий CSV",
+-        data=visible_reviews.to_csv(index=False).encode("windows-1251"),
++        data=visible_reviews.to_csv(index=False).encode("utf-8-sig"),
+         file_name="manual_dependency_review_new_json_short.csv",
+         mime="text/csv",
+     )
+diff --git a/src/get_json.py b/src/get_json.py
+index 2525951..431bbdf 100644
+--- a/src/get_json.py
++++ b/src/get_json.py
+@@ -3,9 +3,15 @@ from pathlib import Path
+ from dotenv import load_dotenv
+ from utils.wfInfo import getWfDependencies, getWfUpdYaml
+ import re
++import sys
+
+
+-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
++def get_data_dir() -> Path:
++    if getattr(sys, 'frozen', False):
++        return Path(sys.executable).parent / "data"
++    return Path(__file__).resolve().parent.parent / "data"
++
++DATA_DIR = get_data_dir()
+
+ ADH1_LIST_PATH = DATA_DIR / "wf_list_adh1.txt"
+ ADH3_LIST_PATH = DATA_DIR / "wf_list_adh3.txt"
+@@ -55,7 +61,7 @@ def remove_tasks_block(yaml_text: str) -> str:
+     return yaml_text[:match.start()].rstrip() + "\n"
+
+
+-if __name__ == "__main__":
++def run_get_json():
+     load_dotenv()
+
+     DATA_DIR.mkdir(exist_ok=True)
+@@ -84,4 +90,7 @@ if __name__ == "__main__":
+     export_cluster_dependencies(
+         flow_names=list_wf_adh3,
+         output_path=DATA_DIR / "adh3_new.json",
+-    )
+\ No newline at end of file
++    )
++
++if __name__ == "__main__":
++    run_get_json()
+\ No newline at end of file
+diff --git a/utils/wfInfo.py b/utils/wfInfo.py
+index 7e54490..f6af78f 100644
+--- a/utils/wfInfo.py
++++ b/utils/wfInfo.py
+@@ -4,7 +4,8 @@ import os
+ import requests
+
+ def getWfDependencies(wf_name):
+-    url = f"http://adp-eiap-app1.adp.local:8191/svc/mdc/dependency/2/{wf_name}"
++    eiap_url = os.getenv("EIAP_URL", "http://adp-eiap-app1.adp.local")
++    url = f"{eiap_url}:8191/svc/mdc/dependency/2/{wf_name}"
+
+     payload = {}
+     headers = {
+@@ -17,7 +18,8 @@ def getWfDependencies(wf_name):
+     return response.text
+
+ def getWfUpdYaml(wf_name):
+-    url = "http://adp-eiap-app1.adp.local:8191/svc/mdc/export"
++    eiap_url = os.getenv("EIAP_URL", "http://adp-eiap-app1.adp.local")
++    url = f"{eiap_url}:8191/svc/mdc/export"
+
+     payload = json.dumps({
+         "operation": "update",
