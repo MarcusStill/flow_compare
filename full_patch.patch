@@ -1,8 +1,8 @@
 diff --git a/src/app.py b/src/app.py
-index 38681ee..fe05e2c 100644
+index 38681ee..9cf7cfd 100644
 --- a/src/app.py
 +++ b/src/app.py
-@@ -10,14 +10,24 @@ from dotenv import load_dotenv
+@@ -10,14 +10,27 @@ from dotenv import load_dotenv
  import pandas as pd
  import streamlit as st
 
@@ -25,12 +25,15 @@ index 38681ee..fe05e2c 100644
  RESULT_PATH = DATA_DIR / "manual_dependency_review_new_json.csv"
 -PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/workflows/{flow_name}/tasks"
 +
++ADH1_LIST_PATH = DATA_DIR / "wf_list_adh1.txt"
++ADH3_LIST_PATH = DATA_DIR / "wf_list_adh3.txt"
++
 +EIAP_URL = os.getenv("EIAP_URL", "http://adp-eiap-app1.adp.local")
 +PARENT_WORKFLOW_URL_TEMPLATE = f"{EIAP_URL}/#/workflows/{{flow_name}}/tasks"
 
 
  # Типы зависимостей, у которых нет parentName/parentTsk,
-@@ -26,6 +36,24 @@ PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/workflows/{flow
+@@ -26,6 +39,24 @@ PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/workflows/{flow
  # "someType": {"label": "someType", "unit": "..."}
  SPECIAL_DEP_VALUE_TYPES = {
      "lastRunTime": {"label": "lastRunTime", "unit": "мин"},
@@ -55,7 +58,7 @@ index 38681ee..fe05e2c 100644
  }
 
  # Типы зависимостей, у которых нет родительского workflow/task,
-@@ -204,6 +232,11 @@ def extract_special_dependency_name(
+@@ -204,6 +235,11 @@ def extract_special_dependency_name(
 
      if dep_type in SPECIAL_DEP_VALUE_TYPES:
          dep_value = item.get("depValue")
@@ -67,7 +70,7 @@ index 38681ee..fe05e2c 100644
 
          if dep_value is not None:
              meta = SPECIAL_DEP_VALUE_TYPES[dep_type]
-@@ -933,7 +966,7 @@ def build_parent_workflow_url(parent_name: str) -> str:
+@@ -933,7 +969,7 @@ def build_parent_workflow_url(parent_name: str) -> str:
 
 
  def build_parent_task_url(task_name: str) -> str:
@@ -76,7 +79,7 @@ index 38681ee..fe05e2c 100644
 
 
  @st.cache_resource
-@@ -1197,12 +1230,30 @@ st.set_page_config(
+@@ -1197,12 +1233,30 @@ st.set_page_config(
 
  st.title("Dependency Review: ADH1 vs ADH3, new JSON format")
 
@@ -107,7 +110,7 @@ index 38681ee..fe05e2c 100644
      st.stop()
 
  try:
-@@ -1214,8 +1265,48 @@ except Exception as exc:
+@@ -1214,8 +1268,48 @@ except Exception as exc:
 
  if adh1_all.empty and adh3_all.empty:
      st.error("В обоих JSON не найдено conditions.")
@@ -156,8 +159,89 @@ index 38681ee..fe05e2c 100644
  reviews = load_reviews()
  review_map = get_review_map(reviews)
 
-@@ -1240,7 +1331,7 @@ with flow_col1:
+@@ -1223,31 +1317,67 @@ st.divider()
 
+-st.subheader("Выбор потоков")
++st.subheader("Выбор потоков (синхронизировано по спискам txt)")
+
+-flow_col1, flow_col2 = st.columns(2)
++list_wf_adh1 = []
++if Path(ADH1_LIST_PATH).exists():
++    with open(ADH1_LIST_PATH, "r", encoding="utf-8") as f:
++        list_wf_adh1 = f.read().splitlines()
+
+-adh1_flows = adh1_all["flow_name"].dropna().astype(str).unique().tolist()
+-adh3_flows = adh3_all["flow_name"].dropna().astype(str).unique().tolist()
++list_wf_adh3 = []
++if Path(ADH3_LIST_PATH).exists():
++    with open(ADH3_LIST_PATH, "r", encoding="utf-8") as f:
++        list_wf_adh3 = f.read().splitlines()
++
++if not list_wf_adh1 or not list_wf_adh3:
++    st.error("Файлы со списками потоков wf_list_adh1.txt и/или wf_list_adh3.txt отсутствуют или пусты.")
++    st.stop()
++
++if len(list_wf_adh1) != len(list_wf_adh3):
++    st.error(f"Количество потоков в файлах не совпадает! ADH1: {len(list_wf_adh1)}, ADH3: {len(list_wf_adh3)}")
++    st.stop()
++
++# Build formatted options e.g. "1. wf_name"
++sync_options = [f"{i+1}. ADH1: {wf1} | ADH3: {wf3}" for i, (wf1, wf3) in enumerate(zip(list_wf_adh1, list_wf_adh3))]
++
++if "flow_index" not in st.session_state:
++    st.session_state["flow_index"] = 0
++
++def decrement_flow():
++    if st.session_state["flow_index"] > 0:
++        st.session_state["flow_index"] -= 1
++
++def increment_flow():
++    if st.session_state["flow_index"] < len(sync_options) - 1:
++        st.session_state["flow_index"] += 1
++
++def update_from_select():
++    selected_val = st.session_state["sync_flow_selector"]
++    st.session_state["flow_index"] = sync_options.index(selected_val)
++
++# Navigation buttons
++nav_col1, nav_col2, nav_col3 = st.columns([1, 4, 1])
++
++with nav_col1:
++    st.button("< Предыдущий", use_container_width=True, on_click=decrement_flow)
+
+-with flow_col1:
+-    if not adh1_flows:
+-        st.error("В ADH1-файле не найдено потоков.")
+-        st.stop()
++with nav_col3:
++    st.button("Следующий >", use_container_width=True, on_click=increment_flow)
++
++with nav_col2:
++    selected_option = st.selectbox(
++        "Пара потоков для анализа",
++        options=sync_options,
++        index=st.session_state["flow_index"],
++        key="sync_flow_selector",
++        on_change=update_from_select
++    )
+
+-    selected_adh1_flow = st.selectbox(
+-        "Поток ADH1",
+-        adh1_flows,
++selected_idx = st.session_state["flow_index"]
++selected_adh1_flow = list_wf_adh1[selected_idx]
++selected_adh3_flow = list_wf_adh3[selected_idx]
++
++# Check if selected flows exist in json
++json_adh1_flows = set(adh1_all["flow_name"].dropna().astype(str).tolist())
++json_adh3_flows = set(adh3_all["flow_name"].dropna().astype(str).tolist())
++
++flow_col1, flow_col2 = st.columns(2)
++
++with flow_col1:
++    st.markdown(f"**Текущий поток ADH1:** `{selected_adh1_flow}`")
++    if selected_adh1_flow not in json_adh1_flows:
++        st.warning("Этот поток отсутствует в загруженном JSON файле ADH1.")
      st.link_button(
          "Открыть поток ADH1",
 -        f"http://adp-eiap-app1.adp.local/#/workflows/{selected_adh1_flow}/tasks",
@@ -165,8 +249,19 @@ index 38681ee..fe05e2c 100644
          use_container_width=True,
      )
 
-@@ -1256,7 +1347,7 @@ with flow_col2:
-
+ with flow_col2:
+-    if not adh3_flows:
+-        st.error("В ADH3-файле не найдено потоков.")
+-        st.stop()
+-
+-    selected_adh3_flow = st.selectbox(
+-        "Поток ADH3",
+-        adh3_flows,
+-    )
+-
++    st.markdown(f"**Текущий поток ADH3:** `{selected_adh3_flow}`")
++    if selected_adh3_flow not in json_adh3_flows:
++        st.warning("Этот поток отсутствует в загруженном JSON файле ADH3.")
      st.link_button(
          "Открыть поток ADH3",
 -        f"http://adp-eiap-app1.adp.local/#/workflows/{selected_adh3_flow}/tasks",
@@ -174,7 +269,7 @@ index 38681ee..fe05e2c 100644
          use_container_width=True,
      )
 
-@@ -1272,9 +1363,26 @@ if not all_types:
+@@ -1272,9 +1402,26 @@ if not all_types:
      st.warning("Для выбранной пары потоков не найдено rcTypUnq.")
      st.stop()
 
@@ -202,7 +297,7 @@ index 38681ee..fe05e2c 100644
  )
 
  left_df = adh1[adh1["rcTypUnq"].astype(str) == selected_type].copy()
-@@ -1558,7 +1666,7 @@ else:
+@@ -1558,7 +1705,7 @@ else:
 
      st.download_button(
          "Скачать короткий CSV",
