@@ -4,7 +4,8 @@ import os
 import requests
 
 def getWfDependencies(wf_name):
-    url = f"http://adp-eiap-app1.adp.local:8191/svc/mdc/dependency/2/{wf_name}"
+    eiap_url = os.getenv("EIAP_URL", "http://adp-eiap-app1.adp.local")
+    url = f"{eiap_url}:8191/svc/mdc/dependency/2/{wf_name}"
 
     payload = {}
     headers = {
@@ -17,7 +18,8 @@ def getWfDependencies(wf_name):
     return response.text
 
 def getWfUpdYaml(wf_name):
-    url = "http://adp-eiap-app1.adp.local:8191/svc/mdc/export"
+    eiap_url = os.getenv("EIAP_URL", "http://adp-eiap-app1.adp.local")
+    url = f"{eiap_url}:8191/svc/mdc/export"
 
     payload = json.dumps({
         "operation": "update",

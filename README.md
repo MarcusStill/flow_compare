@@ -6,7 +6,7 @@
 
 ### Как функционирует проект
 1. **Сбор данных (`src/get_json.py`)**: Скрипт считывает список потоков из текстовых файлов (`data/wf_list_adh1.txt` и `data/wf_list_adh3.txt`), делает HTTP API-запросы к серверу `adp-eiap-app1.adp.local:8191` и сохраняет извлеченные параметры запуска (conditions) в локальные JSON-файлы (`data/adh1_new.json` и `data/adh3_new.json`).
-2. **Веб-интерфейс (`src/app.py`)**: Streamlit-приложение парсит эти JSON-файлы и разворачивает сложные вложенные структуры (например, целевые сущности `parentIsNotWorkingByEntity` или интервалы расписаний `execTimePeriod`) в плоские таблицы Pandas. 
+2. **Веб-интерфейс (`src/app.py`)**: Streamlit-приложение парсит эти JSON-файлы и разворачивает сложные вложенные структуры (например, целевые сущности `parentIsNotWorkingByEntity` или интервалы расписаний `execTimePeriod`) в плоские таблицы Pandas.
 3. **Интеграция с БД**: Приложение использует `psycopg2` для подключения к PostgreSQL (БД `mdb`), чтобы сопоставлять аналоги родительских потоков и сущностей по их метаданным.
 4. **Анализ и экспорт**: Пользователь через удобный интерфейс может просматривать зависимости, фильтровать их, проводить ручную проверку соответствия (с сохранением результатов) и выгружать параметры расписания (CSV) для дальнейшего документирования.
 
@@ -15,11 +15,12 @@
    ```bash
    pip install -r requirements.txt
    ```
-2. Подготовьте данные, запустив сборщик (опционально, если JSON файлы еще не загружены):
+2. Подготовьте файл `.env` с учетными данными.
+3. Подготовьте данные, запустив сборщик (опционально, если JSON файлы еще не загружены):
    ```bash
    python src/get_json.py
    ```
-3. Запустите Streamlit приложение:
+4. Запустите Streamlit приложение:
    ```bash
    streamlit run src/app.py
    ```
@@ -32,9 +33,10 @@
 Поскольку Streamlit использует динамические импорты и скрытую статику, процесс сборки требует специального скрипта-обертки и файла конфигурации.
 
 ### Этап 1: Создание скрипта-обертки (`run_main.py`)
-Создайте файл `run_main.py` в корне проекта. Этот файл решает две проблемы:
-1. Выполняет "фиктивные импорты" (dummy imports) всех используемых сторонних библиотек, чтобы PyInstaller гарантированно запаковал их внутрь `.exe`.
-2. Правильно определяет путь к `src/app.py` при запуске из распакованной временной папки `sys._MEIPASS`.
+Создайте файл `run_main.py` в корне проекта. Этот файл решает три проблемы:
+1. Выполняет "фиктивные импорты" (dummy imports) всех сторонних библиотек, чтобы PyInstaller запаковал их внутрь `.exe`.
+2. Загружает внешний файл `.env` (который должен лежать рядом с готовым `.exe`).
+3. Правильно определяет путь к `src/app.py` при запуске из распакованной временной папки `sys._MEIPASS`.
 
 **Содержимое `run_main.py`:**
 ```python
@@ -42,35 +44,45 @@ import sys
 import os
 
 # === ФИКТИВНЫЕ ИМПОРТЫ ДЛЯ PYINSTALLER ===
-# PyInstaller увидит эти строчки и скопирует библиотеки в exe
 import requests
-import dotenv
 import pandas
 import streamlit
 import psycopg2
 # =========================================
 
 import streamlit.web.cli as stcli
+from dotenv import load_dotenv
+
+def get_exe_dir():
+    """Возвращает папку, где физически лежит наш .exe файл"""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
 
 def resolve_path(path):
+    """Ищет файлы (src/app.py) во временной папке распаковки"""
     if getattr(sys, 'frozen', False):
-        resolved_path = os.path.abspath(os.path.join(sys._MEIPASS, path))
-    else:
-        resolved_path = os.path.abspath(os.path.join(os.getcwd(), path))
-    return resolved_path
+        return os.path.abspath(os.path.join(sys._MEIPASS, path))
+    return os.path.abspath(os.path.join(os.getcwd(), path))
 
 if __name__ == "__main__":
+    # Загружаем .env файл, который лежит РЯДОМ с нашим .exe
+    exe_folder = get_exe_dir()
+    env_path = os.path.join(exe_folder, '.env')
+    load_dotenv(dotenv_path=env_path)
+
     app_path = resolve_path("src/app.py")
     sys.argv = ["streamlit", "run", app_path, "--global.developmentMode=false"]
     sys.exit(stcli.main())
 ```
 
 ### Этап 2: Создание и настройка `.spec` файла
-Сначала сгенерируйте базовый файл спецификации:
+Сгенерируйте базовый файл спецификации:
 ```bash
 pyinstaller --onefile run_main.py
 ```
-После этого откройте созданный файл `run_main.spec` и отредактируйте его. Нужно добавить пути к статике Streamlit, рабочим папкам проекта и метаданным модулей.
+После этого откройте созданный файл `run_main.spec` и отредактируйте его.
+Внимание: **не добавляйте** файл `.env` в `datas`, иначе он зашьется в exe! Файл `.env` нужно переносить руками и класть рядом с собранным файлом `run_main.exe`.
 
 **Ключевые изменения в `run_main.spec`:**
 ```python
@@ -80,12 +92,11 @@ import streamlit
 
 st_path = streamlit.__path__[0]
 
-# Добавляем статику streamlit, исходники, data и .env
+# Добавляем статику streamlit, исходники, data
 datas = [
     (f"{st_path}/static", "streamlit/static"),
     ("src", "src"),
     ("data", "data"),
-    (".env", ".")
 ]
 # Добавляем метаданные streamlit, чтобы не было ошибки PackageNotFoundError
 datas += copy_metadata("streamlit")
@@ -94,21 +105,20 @@ a = Analysis(
     ['run_main.py'],
     pathex=[],
     binaries=[],
-    datas=datas, # Обязательно укажите здесь переменную datas!
+    datas=datas, 
     hiddenimports=[
         'streamlit.runtime.scriptrunner.magic_funcs',
         'streamlit.runtime.scriptrunner',
     ],
     hookspath=[],
-    # ... остальные параметры без изменений ...
 )
 # ... код сборки PYZ и EXE ...
 ```
 
 ### Этап 3: Финальная сборка
-Запустите сборку, используя измененный файл спецификации:
+Запустите сборку:
 ```bash
 pyinstaller run_main.spec --clean
 ```
 
-После завершения в папке `dist/` появится файл `run_main.exe`. Вы можете переименовать его и использовать на других компьютерах Windows.
+Итог: В папке `dist/` появится файл `run_main.exe`. Для запуска на другом ПК скопируйте `run_main.exe` и положите рядом с ним конфигурационный файл `.env`.

@@ -3,9 +3,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 from utils.wfInfo import getWfDependencies, getWfUpdYaml
 import re
+import sys
 
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+def get_data_dir() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent / "data"
+    return Path(__file__).resolve().parent.parent / "data"
+
+DATA_DIR = get_data_dir()
 
 ADH1_LIST_PATH = DATA_DIR / "wf_list_adh1.txt"
 ADH3_LIST_PATH = DATA_DIR / "wf_list_adh3.txt"
@@ -55,7 +61,7 @@ def remove_tasks_block(yaml_text: str) -> str:
     return yaml_text[:match.start()].rstrip() + "\n"
 
 
-if __name__ == "__main__":
+def run_get_json():
     load_dotenv()
 
     DATA_DIR.mkdir(exist_ok=True)
@@ -85,3 +91,6 @@ if __name__ == "__main__":
         flow_names=list_wf_adh3,
         output_path=DATA_DIR / "adh3_new.json",
     )
+
+if __name__ == "__main__":
+    run_get_json()

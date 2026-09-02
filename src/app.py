@@ -10,14 +10,24 @@ from dotenv import load_dotenv
 import pandas as pd
 import streamlit as st
 
+import sys
+from src.get_json import run_get_json
+
 load_dotenv()
-root_dir = Path(__file__).resolve().parent.parent
-DATA_DIR = root_dir / "data"
+
+def get_data_dir() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent / "data"
+    return Path(__file__).resolve().parent.parent / "data"
+
+DATA_DIR = get_data_dir()
 
 ADH1_PATH = DATA_DIR / "adh1_new.json"
 ADH3_PATH = DATA_DIR / "adh3_new.json"
 RESULT_PATH = DATA_DIR / "manual_dependency_review_new_json.csv"
-PARENT_WORKFLOW_URL_TEMPLATE = "http://adp-eiap-app1.adp.local/#/workflows/{flow_name}/tasks"
+
+EIAP_URL = os.getenv("EIAP_URL")
+PARENT_WORKFLOW_URL_TEMPLATE = f"{EIAP_URL}/#/workflows/{{flow_name}}/tasks"
 
 
 # Типы зависимостей, у которых нет parentName/parentTsk,
@@ -222,6 +232,11 @@ def extract_special_dependency_name(
 
     if dep_type in SPECIAL_DEP_VALUE_TYPES:
         dep_value = item.get("depValue")
+
+        if dep_value is None and item.get("depListValue"):
+            dep_list = item.get("depListValue")
+            if isinstance(dep_list, list):
+                dep_value = ", ".join(str(v) for v in dep_list)
 
         if dep_value is not None:
             meta = SPECIAL_DEP_VALUE_TYPES[dep_type]
@@ -951,7 +966,7 @@ def build_parent_workflow_url(parent_name: str) -> str:
 
 
 def build_parent_task_url(task_name: str) -> str:
-    return f"http://adp-eiap-app1.adp.local/#/tasks/{task_name}/info/"
+    return f"{EIAP_URL}/#/tasks/{task_name}/info/"
 
 
 @st.cache_resource
@@ -1215,12 +1230,28 @@ st.set_page_config(
 
 st.title("Dependency Review: ADH1 vs ADH3, new JSON format")
 
+# ------------------------------------------------------------
+# Sidebar functionality
+# ------------------------------------------------------------
+if st.sidebar.button("Обновить данные (get_json.py)"):
+    with st.spinner("Загрузка данных с сервера... Это может занять некоторое время."):
+        run_get_json()
+    st.sidebar.success("Данные успешно обновлены!")
+    st.rerun()
+
+st.sidebar.subheader("Экспорт расписаний потоков")
+
+# ------------------------------------------------------------
+# Data loading
+# ------------------------------------------------------------
 if not Path(ADH1_PATH).exists():
     st.error(f"Не найден файл {ADH1_PATH}")
+    st.info("Пожалуйста, нажмите кнопку 'Обновить данные' в боковом меню слева, чтобы сформировать JSON файлы.")
     st.stop()
 
 if not Path(ADH3_PATH).exists():
     st.error(f"Не найден файл {ADH3_PATH}")
+    st.info("Пожалуйста, нажмите кнопку 'Обновить данные' в боковом меню слева, чтобы сформировать JSON файлы.")
     st.stop()
 
 try:
@@ -1232,21 +1263,39 @@ except Exception as exc:
 
 if adh1_all.empty and adh3_all.empty:
     st.error("В обоих JSON не найдено conditions.")
+    st.info("Файлы существуют, но пусты. Попробуйте нажать 'Обновить данные' в боковом меню.")
     st.stop()
 
-st.sidebar.subheader("Экспорт расписаний потоков")
-schedule_df = pd.concat([
-    adh1_all[adh1_all["rcTypUnq"].isin(SCHEDULE_DEP_TYPES)],
-    adh3_all[adh3_all["rcTypUnq"].isin(SCHEDULE_DEP_TYPES)]
-])
+# Build schedule export payload
+dfs_to_concat = []
+if not adh1_all.empty and "rcTypUnq" in adh1_all.columns:
+    dfs_to_concat.append(adh1_all[adh1_all["rcTypUnq"].isin(SCHEDULE_DEP_TYPES)])
+if not adh3_all.empty and "rcTypUnq" in adh3_all.columns:
+    dfs_to_concat.append(adh3_all[adh3_all["rcTypUnq"].isin(SCHEDULE_DEP_TYPES)])
+
+if dfs_to_concat:
+    schedule_df = pd.concat(dfs_to_concat)
+else:
+    schedule_df = pd.DataFrame()
 
 if not schedule_df.empty:
-    schedule_export = schedule_df[["cluster", "flow_name", "rcTypUnq", "depValue"]].copy()
+    # Заполняем Значение либо из depValue, либо из depListValue, либо из rcDesc/rcBody
+    def extract_val(row):
+        dep_val = row.get("depValue")
+        if pd.notna(dep_val) and dep_val != "":
+            return dep_val
+        dep_list = row.get("depListValue")
+        if isinstance(dep_list, list):
+            return ", ".join(str(v) for v in dep_list)
+        return row.get("rcDesc") or row.get("rcBody")
+
+    schedule_df["Значение"] = schedule_df.apply(extract_val, axis=1)
+
+    schedule_export = schedule_df[["cluster", "flow_name", "rcTypUnq", "Значение"]].copy()
     schedule_export.rename(columns={
         "cluster": "Кластер",
         "flow_name": "Поток",
         "rcTypUnq": "Параметр расписания",
-        "depValue": "Значение"
     }, inplace=True)
 
     st.sidebar.download_button(
@@ -1255,7 +1304,6 @@ if not schedule_df.empty:
         file_name="flow_schedules.csv",
         mime="text/csv",
     )
-
 
 reviews = load_reviews()
 review_map = get_review_map(reviews)
@@ -1281,7 +1329,7 @@ with flow_col1:
 
     st.link_button(
         "Открыть поток ADH1",
-        f"http://adp-eiap-app1.adp.local/#/workflows/{selected_adh1_flow}/tasks",
+        f"{EIAP_URL}/#/workflows/{selected_adh1_flow}/tasks",
         use_container_width=True,
     )
 
@@ -1297,7 +1345,7 @@ with flow_col2:
 
     st.link_button(
         "Открыть поток ADH3",
-        f"http://adp-eiap-app1.adp.local/#/workflows/{selected_adh3_flow}/tasks",
+        f"{EIAP_URL}/#/workflows/{selected_adh3_flow}/tasks",
         use_container_width=True,
     )
 
